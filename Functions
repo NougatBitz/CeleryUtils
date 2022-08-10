@@ -3,7 +3,7 @@ local Functions = {}
 local packetReader = rnet.packetReader
 
 function Functions:getEventId(event)
-    event = (event or game.ReplicatedStorage.DefaultChatSystemChatEvents)
+    event = (event or game.ReplicatedStorage.DefaultChatSystemChatEvents.OnMuted)
 
     event:FireServer()
 
