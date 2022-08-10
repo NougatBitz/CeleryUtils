@@ -1,0 +1,21 @@
+local Functions = {}
+
+function Functions:getEventId(event)
+    event = (event or game.ReplicatedStorage.DefaultChatSystemChatEvents)
+
+    event:FireServer()
+
+	local packet do
+		repeat packet = rnet.nextPacket()
+		until packet.bytes[1] == 131 and packet.bytes[2] == 7
+	end
+
+	packetReader:use(packet.bytes)
+	packetReader:nextByte()
+	packetReader:nextByte()
+	packetReader:nextInstance()
+    
+	return packetReader:nextUInt16BE()
+end
+
+return Functions
