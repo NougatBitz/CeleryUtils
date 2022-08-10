@@ -1,5 +1,7 @@
 local Functions = {}
 
+local packetReader = rnet.packetReader
+
 function Functions:getEventId(event)
     event = (event or game.ReplicatedStorage.DefaultChatSystemChatEvents)
 
