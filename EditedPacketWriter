@@ -1,0 +1,263 @@
+local packetWriter = {} do
+    local packetFunctions = {} do
+		packetFunctions.__index = packetFunctions
+        function packetFunctions:writeByte(val)
+            table.insert(self.bytes, val);
+        end
+
+        function packetFunctions:writeChar(val)
+            table.insert(self.bytes, string.byte(val));
+        end
+
+        function packetFunctions:writeBytes(val)
+            for i = 1, #val do
+                table.insert(self.bytes, val[i]);
+            end
+        end
+
+        function packetFunctions:writeString(str)
+            self:writeVarInt64(string.len(str));
+            for i = 1, string.len(str) do
+                self:writeChar(str:sub(i, i));
+            end
+        end
+
+        function packetFunctions:writeUInt16LE(val)
+            self:writeBytes({
+                bit32.band(val, 255),
+                bit32.band(bit32.rshift(val, 8), 255)
+            });
+        end
+
+        function packetFunctions:writeUInt16BE(val)
+            self:writeBytes({
+                bit32.band(bit32.rshift(val, 8), 255),
+                bit32.band(val, 255)
+            });
+        end
+
+        function packetFunctions:writeUInt32LE(val)
+            self:writeBytes({
+                bit32.band(val, 255),
+                bit32.band(bit32.rshift(val, 8), 255),
+                bit32.band(bit32.rshift(val, 16), 255),
+                bit32.band(bit32.rshift(val, 24), 255)
+            });
+        end
+
+        function packetFunctions:writeUInt32BE(val)
+            self:writeBytes({
+                bit32.band(bit32.rshift(val, 24), 255),
+                bit32.band(bit32.rshift(val, 16), 255),
+                bit32.band(bit32.rshift(val, 8), 255),
+                bit32.band(val, 255)
+            });
+        end
+
+        function packetFunctions:writeUInt64LE(val)
+            self:writeBytes({
+                bit32.band(val, 255),
+                bit32.band(bit32.rshift(val, 8), 255),
+                bit32.band(bit32.rshift(val, 16), 255),
+                bit32.band(bit32.rshift(val, 24), 255),
+                bit32.band(bit32.rshift(val, 32), 255),
+                bit32.band(bit32.rshift(val, 40), 255),
+                bit32.band(bit32.rshift(val, 48), 255),
+                bit32.band(bit32.rshift(val, 56), 255)
+            });
+        end
+
+        function packetFunctions:writeUInt64BE(val)
+            self:writeBytes({
+                bit32.band(bit32.rshift(val, 56), 255),
+                bit32.band(bit32.rshift(val, 48), 255),
+                bit32.band(bit32.rshift(val, 40), 255),
+                bit32.band(bit32.rshift(val, 32), 255),
+                bit32.band(bit32.rshift(val, 24), 255),
+                bit32.band(bit32.rshift(val, 16), 255),
+                bit32.band(bit32.rshift(val, 8), 255),
+                bit32.band(val, 255)
+            });
+        end
+
+        function packetFunctions:writeVarInt64(val)
+            local value = val;
+            repeat
+                local v = bit32.band(value, 127);
+                value = bit32.rshift(value, 7);
+                if not (value <= 0) then
+                    v = bit32.bor(v, 128)
+                end
+                self:writeByte(v);
+            until (value <= 0)
+        end
+
+        function packetFunctions:writeFloatLE(val)
+            local bytes = {}
+            local str = string.pack("<f", val);
+            for i = 1, 4 do
+                table.insert(bytes, str:byte(i, i));
+            end
+            for i = 1, 4, -1 do
+                self:writeByte(bytes[i]);
+            end
+        end
+
+        function packetFunctions:writeFloatBE(val)
+            local bytes = {}
+            local str = string.pack("<f", val);
+            for i = 1, 4 do
+                table.insert(bytes, str:byte(i, i));
+            end
+            for i = 4, 1, -1 do
+                self:writeByte(bytes[i]);
+            end
+        end
+
+        function packetFunctions:writeDoubleBE(val)
+            local bytes = {}
+            local str = string.pack("<d", val);
+            for i = 1, 8 do
+                table.insert(bytes, str:byte(i, i));
+            end
+            for i = 8, 1, -1 do
+                self:writeByte(bytes[i]);
+            end
+        end
+
+        function packetFunctions:writeInstance(instance)
+            local peerId = 0;
+            local instanceId = 0;
+            if instance then
+                assert(typeof(instance) == "Instance", "Instance expected for writeInstance");
+                local ids = rnet.getInstance(instance)
+
+                peerId      = ids.peerId
+                instanceId  = ids.id
+            end
+            if peerId == 0 then
+                local bytes = rnet.fetchValueBytes(instance);
+                self:writeBytes(bytes);
+            else
+                self:writeVarInt64(peerId);
+                self:writeUInt32LE(instanceId);
+            end
+        end
+
+        function packetFunctions:writeEnum(enumItem)
+            local bytes = rnet.fetchValueBytes(enumItem);
+            
+            table.remove(bytes, 1);
+            table.remove(bytes, 1);
+
+            self:writeBytes(bytes);
+        end
+        
+        function packetFunctions:writeTable(t)
+            self:writeVarInt64(#t);
+            for i = 1, #t do
+                self:writeObject({
+                    ["Value"] = t[i],
+                    ["Type"] = typeof(t[i])
+                });
+            end
+        end
+
+        function packetFunctions:writeDictionary(t)
+            local size = 0;
+            for k, v in pairs(t) do
+                size = size + 1
+            end
+            self:writeVarInt64(size);
+            for k, v in pairs(t) do
+                self:writeObject({
+                    ["Value"] = k,
+                    ["Type"] = typeof(k)
+                });
+                self:writeObject({
+                    ["Value"] = v,
+                    ["Type"] = typeof(v)
+                });
+            end
+        end
+
+        function packetFunctions:writeObject(valueData, includeType)
+            local userType = typeof(valueData.Value):lower();
+            local expectedType = valueData.Type:lower();
+            local value = valueData.Value;
+            local typeId = nil;
+            if (expectedType == "content") then
+                includeType = true;
+                typeId = rnet.propertyTypes["Float"];
+            elseif (expectedType == "objects") then
+                expectedType = "table";
+            elseif (expectedType == "object") then
+                expectedType = "instance";
+            elseif (expectedType == "coordinateframe") then
+                expectedType = "cframe";
+            end
+            if (userType == "string") then
+                typeId = rnet.propertyTypes["StringNotCached"];
+            elseif (userType == "enumitem") then
+                expectedType = userType;
+            end
+            if (userType == "number" and (expectedType == "float" or expectedType == "int" or expectedType == "int64" or expectedType == "double")) or (userType == "boolean" and (expectedType == "bool")) or (userType == "table" and (expectedType == "tuple" or expectedType == "array" or expectedType == "dictionary")) then
+                userType = expectedType;
+            end
+            if typeId == nil then
+                for k, v in pairs(rnet.propertyTypes) do
+                    if k:lower() == expectedType then
+                        typeId = v;
+                        break;
+                    end
+                end
+            end
+            if (includeType == nil or includeType == true) then
+                if typeId then
+                    self:writeByte(typeId);
+                else
+                    error(string.format("Could not resolve type id (expected %s, got %s)", expectedType, userType))
+                end
+            end
+            if (userType ~= expectedType and expectedType ~= "content" and expectedType ~= "tuple" and expectedType ~= "enumitem" and expectedType ~= "variant") then
+                error(string.format("%s expected, got %s", valueData.Type, typeof(value)))
+            end
+    
+            if (expectedType == "nil") then
+            elseif (expectedType == "instance" or expectedType == "object") then
+                self:writeInstance(value);
+            elseif (expectedType == "table" or expectedType == "array" or expectedType == "objects" or expectedType == "tuple") then
+                self:writeTable(value);
+            elseif (expectedType == "dictionary") then
+                self:writeDictionary(value);
+            elseif (expectedType == "float") then
+                self:writeFloatBE(value);
+            elseif (expectedType == "int") then
+                self:writeVarInt64(value);
+            elseif (expectedType == "int64") then
+                self:writeUInt64BE(value);
+            elseif (expectedType == "double") then
+                self:writeDoubleBE(value);
+            elseif (expectedType == "bool" or expectedType == "boolean") then
+                self:writeByte(value and 1 or 0);
+            elseif (expectedType == "string") then
+                self:writeString(value);
+            elseif (expectedType == "content") then
+                self:writeVarInt64(value);
+            elseif (expectedType == "enum" or expectedType == "enumitem") then
+                self:writeEnum(value);
+            else
+                self:writeBytes(rnet.fetchValueBytes(value));
+            end
+        end
+    end
+
+    function packetWriter:new(bytes)
+        local bytes = bytes or {}
+        return setmetatable({
+            bytes = bytes
+        }, packetFunctions)
+    end
+end
+
+return packetWriter
