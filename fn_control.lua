@@ -1,14 +1,24 @@
 local func_env = getrawmetatable(getfenv(functionx)).__index
 local fn_leak  = loadstring
 
-local cfnc_env = function(args)
-    return setmetatable({}, {
+local functions = {current_args = {}}
+
+function functions:unload()
+    setfenv(fn_leak, func_env)
+    debug.setconstant(fn_leak, 1, "loadstring")
+end
+
+function functions:load_fn_control(name)
+    setfenv(fn_leak, setmetatable({}, {
         __index = function(_, index)
             if index == "string" then
                 return setmetatable({}, {
                     __index = function(_, index)
                         if index == "len" then
-                            return (function(...) table.remove(args, 1) return unpack(args) end)
+                            return (function(...)
+                                table.remove(self.current_args, 1)
+                                return unpack(self.current_args) 
+                            end)
                         end
 
                         return func_env.string[index]
@@ -20,35 +30,21 @@ local cfnc_env = function(args)
 
             return func_env[index]
         end
-    })
+    }))
 end
 
-function celery_fn_control(data, ...)
-    local hasResult = false
-    local fnName    = data 
-
-    if type(data) == "table" then
-        fnName = data.name
-        hasResult = data.result
-    end
-
+function functions:send_fn_control(fnName, fnResult, ...)
     local args   = {...}
-    local result
 
     debug.setconstant(fn_leak, 1, fnName)
-    setfenv(fn_leak, cfnc_env(args))
 
-    result = fn_leak(args[1])
+    self.current_args = args
+    local result = fn_leak(args[1])
 
-    setfenv(fn_leak, func_env)
-    debug.setconstant(fn_leak, 1, "loadstring")
-
-    if hasResult then
-        repeat task.wait()
-        until result
+    if fnResult then
+        repeat task.wait() until fnResult
+        return result
     end
-
-    return result
 end
 
-return celery_fn_control
+return functions
