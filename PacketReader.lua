@@ -10,6 +10,11 @@ local packetReader = {} do
     local packetFunctions = {} do
 		packetFunctions.__index = packetFunctions
 
+        function packetFunctions:set(bytes, pos)
+            self.bytes = bytes; 
+            self.pos   = pos; 
+        end
+
         function packetFunctions:nextByte()
             local value = self.bytes[self.pos]
 
