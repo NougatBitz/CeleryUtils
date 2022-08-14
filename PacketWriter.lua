@@ -132,5 +132,8 @@ local packetWriter = {} do
             bytes = bytes
         }, packetFunctions)
     end
+
+    packetWriter.packetFunctions = packetFunctions
 end
 
+return packetWriter
